@@ -1,70 +1,29 @@
 package service
 
 import (
-	"errors"
 	"mymodule/model"
-	"mymodule/store"
+	"mymodule/repository"
 )
 
-var idCounter = 1
-
-func AddTask(name string) model.Task {
-	task := model.Task{
-
-		ID:     idCounter,
-		Name:   name,
-		Status: "Pending",
-	}
-
-	store.Task = append(store.Task, task)
-	idCounter++
-
-	return task
-}
-func GetTask() []model.Task {
-	return store.Task
+type TaskService struct {
+	repo repository.TaskRepository
 }
 
-func GetTaskByID(id int) (*model.Task, error) {
-	for i := range store.Task {
-		if store.Task[i].ID == id {
-			return &store.Task[i], nil
-		}
-	}
-	return nil, errors.New("task not found")
+func NewTaskService(r repository.TaskRepository) *TaskService {
+	return &TaskService{repo: r}
+}
+func (s *TaskService) AddTask(name string) error {
+	return s.repo.Create(model.Task{Name: name})
 }
 
-func MarkDone(id int) {
-	for i := range store.Task {
-		if store.Task[i].ID == id {
-			store.Task[i].Status = "Done"
-			return
-		}
-	}
+func (s *TaskService) ListTasks() ([]model.Task, error) {
+	return s.repo.GetAll()
 }
 
-func UpdateTask(id int, newName string) error {
-	for i := range store.Task {
-		if store.Task[i].ID == id {
-
-			if store.Task[i].Status == "Done" {
-				return errors.New("cannot update completed task")
-			}
-
-			store.Task[i].Name = newName
-			return nil
-		}
-	}
-	return errors.New("task not found")
+func (s *TaskService) MarkDone(id int) error {
+	return s.repo.Update(id)
 }
 
-func DeleteTask(id int) error {
-	for i := range store.Task {
-		if store.Task[i].ID == id {
-
-			store.Task = append(store.Task[:i], store.Task[i+1:]...)
-			return nil
-		}
-	}
-	return errors.New("task not found")
+func (s *TaskService) DeleteTask(id int) error {
+	return s.repo.Delete(id)
 }

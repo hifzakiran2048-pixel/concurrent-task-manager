@@ -3,21 +3,31 @@ package worker
 import (
 	"fmt"
 	"mymodule/model"
+	"mymodule/service"
 	"sync"
-	"time"
 )
 
-func Worker(id int, taskChan <-chan model.Task, resultChan chan<- model.Task,wg *sync.WaitGroup) {
-defer wg.Done()
+func Worker(
+	id int,
+	taskChan <-chan model.Task,
+	resultChan chan<- model.Task,
+	wg *sync.WaitGroup,
+	taskService *service.TaskService,
+) {
+	defer wg.Done()
+
 	for task := range taskChan {
-		if task.Status == "Done" {
-			fmt.Println("Task already completed:", task.Name)
+
+		fmt.Println("Worker", id, "processing:", task.Name)
+
+		err := taskService.MarkDone(task.ID)
+		if err != nil {
+			fmt.Println("Error marking done:", err)
 			continue
 		}
-		fmt.Println("Processing this task: ", id, task.Name)
-		time.Sleep(2 * time.Second)
 
-		task.Status = "Done"
+		task.IsDone = true
+
 		resultChan <- task
 	}
 }

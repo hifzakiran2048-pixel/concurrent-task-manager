@@ -3,7 +3,9 @@ package main
 import (
 	"bufio"
 	"fmt"
+	"mymodule/database"
 	"mymodule/model"
+	"mymodule/repository"
 	"mymodule/service"
 	"mymodule/worker"
 	"os"
@@ -13,120 +15,114 @@ import (
 )
 
 func main() {
-	reader := bufio.NewReader(os.Stdin)
 
+	// ✅ STEP 1: Connect Database
+	db := database.ConnectDB()
+	defer db.Close()
+
+	// ✅ STEP 2: Setup layers
+	repo := repository.NewTaskRepo(db)
+	taskService := service.NewTaskService(repo)
+
+	// ✅ STEP 3: Channels + Worker Pool
 	taskChan := make(chan model.Task, 10)
 	resultChan := make(chan model.Task, 10)
 
 	var wg sync.WaitGroup
 
-	for i := 1; i < 2; i++ {
+	// Start 2 workers
+	for i := 1; i <= 2; i++ {
 		wg.Add(1)
-		go worker.Worker(i, taskChan, resultChan, &wg)
+		go worker.Worker(i, taskChan, resultChan, &wg, taskService)
 	}
 
+	// Result listener
 	go func() {
-		for result := range resultChan {
-			service.MarkDone(result.ID)
-			fmt.Println("Task Completed:", result.Name)
-
+		for res := range resultChan {
+			fmt.Println("✅ Completed:", res.Name)
 		}
 	}()
 
+	// ✅ STEP 4: CLI Menu
+	reader := bufio.NewReader(os.Stdin)
+
 	for {
-		fmt.Println("\n---Task Manager---")
+		fmt.Println("\n--- TASK MANAGER ---")
 		fmt.Println("1. Add Task")
-		fmt.Println("2. Show Task")
-		fmt.Println("3. Mark Task as Done")
-		fmt.Println("4. Update Task")
-		fmt.Println("5. Delete Task")
-		fmt.Println("6. Exit")
-		fmt.Println("Choose Option: ")
+		fmt.Println("2. List Tasks")
+		fmt.Println("3. Mark Done (Worker)")
+		fmt.Println("4. Delete Task")
+		fmt.Println("5. Exit")
+		fmt.Print("Enter choice: ")
 
 		input, _ := reader.ReadString('\n')
 		input = strings.TrimSpace(input)
 
-		choose, err := strconv.Atoi(input)
+		switch input {
 
-		if err != nil {
-			fmt.Println("Please enter a valid number!")
-			continue
-		}
-
-		switch choose {
-
-		case 1:
-			fmt.Println("Enter Task: ")
+		// ➕ Add Task
+		case "1":
+			fmt.Print("Enter task name: ")
 			name, _ := reader.ReadString('\n')
 			name = strings.TrimSpace(name)
 
-			task := service.AddTask(name)
-			fmt.Println("Task Added: ", task.Name)
+			err := taskService.AddTask(name)
+			if err != nil {
+				fmt.Println("Error:", err)
+			} else {
+				fmt.Println("Task added!")
+			}
 
-		case 2:
-			tasks := service.GetTask()
-
-			if len(tasks) == 0 {
-				fmt.Println("No tasks yet!")
+		// 📋 List Tasks
+		case "2":
+			tasks, err := taskService.ListTasks()
+			if err != nil {
+				fmt.Println("Error:", err)
 				continue
 			}
 
 			for _, t := range tasks {
-				fmt.Println("ID:", t.ID, "|", t.Name, "|", t.Status)
+				fmt.Println(t.ID, "-", t.Name, "-", t.IsDone)
 			}
 
-		case 3:
-			fmt.Println("Enter Task ID: ")
+		// ⚙️ Mark Done via Worker
+		case "3":
+			fmt.Print("Enter task ID: ")
 			idStr, _ := reader.ReadString('\n')
 			idStr = strings.TrimSpace(idStr)
 
 			id, _ := strconv.Atoi(idStr)
 
-			task, err := service.GetTaskByID(id)
-			if err != nil {
-				fmt.Println(err)
-				continue
+			taskChan <- model.Task{
+				ID: id,
 			}
-			taskChan <- *task
-			fmt.Println("Send to Worker:", task.Name)
-		case 4:
-			fmt.Print("Enter Task ID to update: ")
+
+		// ❌ Delete
+		case "4":
+			fmt.Print("Enter task ID: ")
 			idStr, _ := reader.ReadString('\n')
 			idStr = strings.TrimSpace(idStr)
 
 			id, _ := strconv.Atoi(idStr)
 
-			fmt.Print("Enter new task name: ")
-			newName, _ := reader.ReadString('\n')
-			newName = strings.TrimSpace(newName)
-
-			err := service.UpdateTask(id, newName)
+			err := taskService.DeleteTask(id)
 			if err != nil {
-				fmt.Println(err)
+				fmt.Println("Error:", err)
 			} else {
-				fmt.Println("Task updated successfully!")
-			}
-		case 5:
-			fmt.Print("Enter Task ID to delete: ")
-			idStr, _ := reader.ReadString('\n')
-			idStr = strings.TrimSpace(idStr)
-
-			id, _ := strconv.Atoi(idStr)
-
-			err := service.DeleteTask(id)
-			if err != nil {
-				fmt.Println(err)
-			} else {
-				fmt.Println("Task deleted successfully!")
+				fmt.Println("Deleted!")
 			}
 
-		case 6:
-			fmt.Println("Exiting")
+		// 🚪 Exit
+		case "5":
 			close(taskChan)
 			wg.Wait()
 			close(resultChan)
+
+			fmt.Println("Goodbye!")
 			return
+
+		default:
+			fmt.Println("Invalid choice")
 		}
 	}
-
 }
